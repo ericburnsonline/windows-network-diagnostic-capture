@@ -4,17 +4,30 @@ A small Windows batch script for capturing basic network diagnostics when an Int
 
 The script is intended for intermittent problems where a user may report that websites or Internet-connected applications feel slow even though the computer otherwise appears healthy. It gives a non-technical user a simple way to collect several useful network checks in one text file for later review.
 
-## What v1 checks
+## What v2 checks
 
-Version 1 performs five read-only tests:
+Version 2 performs six read-only tests:
 
 1. **Raw IP connectivity** - Pings `1.1.1.1` 20 times to check basic Internet reachability, latency, and packet loss.
 2. **Hostname connectivity** - Pings `www.google.com` 20 times to combine name resolution with a connectivity test.
 3. **DNS resolution** - Runs `nslookup` against `www.google.com` using the system's configured DNS resolver.
 4. **HTTPS connectivity** - Uses `curl` to make an HTTPS request and records the returned HTTP status code.
-5. **WinHTTP proxy configuration** - Runs `netsh winhttp show proxy` to show whether WinHTTP is configured to use a proxy.
+5. **WinHTTP proxy configuration** - Runs `netsh winhttp show proxy`.
+6. **Current-user proxy configuration** - Reads the Windows Internet Settings values for:
+   - `ProxyEnable`
+   - `ProxyServer`
+   - `AutoConfigURL`
+   - `AutoDetect`
 
 The script does not change network settings.
+
+## What's new in v2
+
+Version 1 checked only the WinHTTP proxy configuration.
+
+Version 2 adds the current user's Windows Internet Settings proxy values. This helps identify proxy configurations used by Windows applications and browsers, including an explicitly configured proxy server or a proxy auto-configuration (PAC) URL.
+
+Version 2 remains intentionally lightweight. More detailed adapter, routing, connection, DNS, IPv4/IPv6, and timing diagnostics are outside the scope of this release.
 
 ## Requirements
 
@@ -30,7 +43,7 @@ Modern Windows 10 and Windows 11 installations normally include `curl`.
 1. Download `internet-slowdown-diagnostic.bat`.
 2. Place it somewhere the user can easily find, such as the Desktop.
 3. When the Internet connection feels slow, double-click the batch file.
-4. Wait for all five tests to finish.
+4. Wait for all six tests to finish.
 5. Press a key when prompted to close the window.
 6. Open the `NetworkDiagnostics` folder created next to the batch file.
 7. Send the corresponding `.txt` file to the person troubleshooting the problem.
@@ -62,19 +75,32 @@ A successful ping to `1.1.1.1` with low latency and no packet loss suggests that
 
 The HTTPS test provides a simple application-layer check. An HTTP status code confirms that the system was able to resolve the hostname, establish a connection, negotiate HTTPS, and receive an HTTP response.
 
-The WinHTTP proxy section shows whether Windows' WinHTTP subsystem is configured for direct access or a proxy server. Version 1 does not inspect every possible browser, VPN, firewall, or security-software configuration.
+### Proxy results
+
+The WinHTTP section shows whether the Windows WinHTTP subsystem is configured for direct access or a proxy server.
+
+The current-user proxy section reports Windows Internet Settings values:
+
+- `ProxyEnable` - whether an explicit proxy is enabled for the current user
+- `ProxyServer` - the configured proxy server, if present
+- `AutoConfigURL` - the configured PAC file URL, if present
+- `AutoDetect` - the Windows automatic proxy-detection setting, when defined
+
+These checks improve proxy visibility but do not prove that all traffic bypasses third-party VPN, firewall, antivirus, endpoint-security, or network-filtering software.
 
 ## Privacy
 
-Diagnostic logs should be reviewed before they are posted publicly or shared outside the organization. Network diagnostic output can reveal information about the system's network configuration, DNS provider, public test destinations, and proxy settings.
+Diagnostic logs should be reviewed before they are posted publicly or shared outside the organization.
 
-This version intentionally records only the HTTP status from the HTTPS test rather than saving full HTTP response headers.
+Version 2 may record a configured proxy hostname, IP address, port, or PAC URL. Those values may reveal internal infrastructure details.
+
+The script does **not** collect browser history, credentials, cookies, or page content. The HTTPS test records only the HTTP status code rather than full response headers.
 
 ## Scope
 
-This is intentionally a small first version. It provides a quick baseline rather than a full Windows network audit.
+Version 2 is intentionally a small incremental release focused on improved proxy detection.
 
-Later versions can add additional proxy checks, adapter configuration, routing information, IPv4/IPv6 comparisons, connection timing, and other troubleshooting data.
+It does not collect detailed network adapter configuration, routing tables, active connections, process lists, filter bindings, DNS-server comparisons, or separate IPv4/IPv6 timing data.
 
 ## License
 
