@@ -2,10 +2,13 @@
 setlocal EnableExtensions
 
 REM ============================================================
-REM Windows Internet Slowdown Diagnostic Capture - v1
+REM Windows Internet Slowdown Diagnostic Capture - v2
 REM
 REM Runs a small set of read-only network tests and saves the
 REM results to a uniquely timestamped text file.
+REM
+REM Version 2 expands proxy detection beyond WinHTTP to include
+REM the current user's Windows Internet Settings proxy values.
 REM
 REM Administrator privileges are not required.
 REM ============================================================
@@ -43,7 +46,7 @@ set "LOGFILE=%LOGDIR%\Internet_Diagnostic_%STAMP%.txt"
 
 REM ---- Log header ---------------------------------------------------
 > "%LOGFILE%" echo ============================================================
->>"%LOGFILE%" echo WINDOWS INTERNET SLOWDOWN DIAGNOSTIC - v1
+>>"%LOGFILE%" echo WINDOWS INTERNET SLOWDOWN DIAGNOSTIC - v2
 >>"%LOGFILE%" echo ============================================================
 >>"%LOGFILE%" echo Started: %DATE% %TIME%
 >>"%LOGFILE%" echo Windows version:
@@ -57,19 +60,19 @@ echo Running network diagnostics...
 echo.
 
 REM ---- 1. Raw IP connectivity --------------------------------------
-echo [1 of 5] Testing raw IP connectivity...
+echo [1 of 6] Testing raw IP connectivity...
 >>"%LOGFILE%" echo ==================== PING %PING_TARGET% ====================
 ping %PING_TARGET% -n 20 >>"%LOGFILE%" 2>&1
 >>"%LOGFILE%" echo.
 
 REM ---- 2. Name resolution plus connectivity ------------------------
-echo [2 of 5] Testing hostname connectivity...
+echo [2 of 6] Testing hostname connectivity...
 >>"%LOGFILE%" echo ==================== PING %TEST_HOST% ====================
 ping %TEST_HOST% -n 20 >>"%LOGFILE%" 2>&1
 >>"%LOGFILE%" echo.
 
 REM ---- 3. DNS lookup ------------------------------------------------
-echo [3 of 5] Testing DNS resolution...
+echo [3 of 6] Testing DNS resolution...
 >>"%LOGFILE%" echo ==================== NSLOOKUP %TEST_HOST% ====================
 nslookup %TEST_HOST% >>"%LOGFILE%" 2>&1
 >>"%LOGFILE%" echo.
@@ -77,7 +80,7 @@ nslookup %TEST_HOST% >>"%LOGFILE%" 2>&1
 REM ---- 4. HTTPS request ---------------------------------------------
 REM Record only the HTTP status instead of response headers. This avoids
 REM unnecessarily placing cookies or other response metadata in the log.
-echo [4 of 5] Testing HTTPS connectivity...
+echo [4 of 6] Testing HTTPS connectivity...
 >>"%LOGFILE%" echo ==================== HTTPS %TEST_HOST% ====================
 where curl >nul 2>&1
 if errorlevel 1 (
@@ -89,9 +92,25 @@ if errorlevel 1 (
 >>"%LOGFILE%" echo.
 
 REM ---- 5. WinHTTP proxy ---------------------------------------------
-echo [5 of 5] Checking WinHTTP proxy configuration...
+echo [5 of 6] Checking WinHTTP proxy configuration...
 >>"%LOGFILE%" echo ==================== WINHTTP PROXY ====================
 netsh winhttp show proxy >>"%LOGFILE%" 2>&1
+>>"%LOGFILE%" echo.
+
+REM ---- 6. Current-user Internet Settings proxy ----------------------
+REM These values are commonly used by Windows applications and browsers.
+REM Only proxy configuration values are recorded. No browser history,
+REM credentials, cookies, or browsing content are collected.
+echo [6 of 6] Checking current-user proxy settings...
+>>"%LOGFILE%" echo ==================== USER / BROWSER PROXY SETTINGS ====================
+powershell -NoProfile -Command ^
+    "$p = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings';" ^
+    "[pscustomobject]@{" ^
+    "ProxyEnable=$p.ProxyEnable;" ^
+    "ProxyServer=$p.ProxyServer;" ^
+    "AutoConfigURL=$p.AutoConfigURL;" ^
+    "AutoDetect=$p.AutoDetect" ^
+    "} | Format-List" >>"%LOGFILE%" 2>&1
 >>"%LOGFILE%" echo.
 
 REM ---- Finish -------------------------------------------------------
