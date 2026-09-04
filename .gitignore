@@ -1,0 +1,7 @@
+# Diagnostic output
+NetworkDiagnostics/
+*.log
+
+# Windows
+Thumbs.db
+Desktop.ini
