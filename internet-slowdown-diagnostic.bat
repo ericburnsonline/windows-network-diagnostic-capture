@@ -1,14 +1,20 @@
 @echo off
-setlocal EnableExtensions
+setlocal EnableExtensions EnableDelayedExpansion
 
 REM ============================================================
-REM Windows Internet Slowdown Diagnostic Capture - v2
+REM Windows Internet Slowdown Diagnostic Capture - v3
 REM
-REM Runs a small set of read-only network tests and saves the
-REM results to a uniquely timestamped text file.
+REM Runs read-only network diagnostics and saves the results to a
+REM uniquely timestamped text file.
 REM
-REM Version 2 expands proxy detection beyond WinHTTP to include
-REM the current user's Windows Internet Settings proxy values.
+REM Version 3 adds:
+REM - IP and DNS configuration
+REM - Routing table
+REM - Network adapter status
+REM - Enabled adapter bindings
+REM - Default, IPv4, and IPv6 HTTPS timing
+REM - Active TCP connections
+REM - Process correlation
 REM
 REM Administrator privileges are not required.
 REM ============================================================
@@ -45,64 +51,76 @@ REM Every run receives a new filename, so earlier logs are preserved.
 set "LOGFILE=%LOGDIR%\Internet_Diagnostic_%STAMP%.txt"
 
 REM ---- Log header ---------------------------------------------------
-> "%LOGFILE%" echo ============================================================
->>"%LOGFILE%" echo WINDOWS INTERNET SLOWDOWN DIAGNOSTIC - v2
->>"%LOGFILE%" echo ============================================================
+call :section "DIAGNOSTIC HEADER"
 >>"%LOGFILE%" echo Started: %DATE% %TIME%
 >>"%LOGFILE%" echo Windows version:
 >>"%LOGFILE%" ver
 >>"%LOGFILE%" echo Ping target: %PING_TARGET%
 >>"%LOGFILE%" echo Test host:   %TEST_HOST%
->>"%LOGFILE%" echo ============================================================
 >>"%LOGFILE%" echo.
 
-echo Running network diagnostics...
+echo Running enhanced network diagnostics...
 echo.
 
-REM ---- 1. Raw IP connectivity --------------------------------------
-echo [1 of 6] Testing raw IP connectivity...
->>"%LOGFILE%" echo ==================== PING %PING_TARGET% ====================
+REM ---- 1. Raw IPv4 connectivity ------------------------------------
+echo [1 of 14] Testing raw IPv4 connectivity...
+call :section "PING IPv4 - %PING_TARGET%"
 ping %PING_TARGET% -n 20 >>"%LOGFILE%" 2>&1
->>"%LOGFILE%" echo.
 
-REM ---- 2. Name resolution plus connectivity ------------------------
-echo [2 of 6] Testing hostname connectivity...
->>"%LOGFILE%" echo ==================== PING %TEST_HOST% ====================
+REM ---- 2. Hostname connectivity ------------------------------------
+echo [2 of 14] Testing hostname connectivity...
+call :section "PING %TEST_HOST%"
 ping %TEST_HOST% -n 20 >>"%LOGFILE%" 2>&1
->>"%LOGFILE%" echo.
 
 REM ---- 3. DNS lookup ------------------------------------------------
-echo [3 of 6] Testing DNS resolution...
->>"%LOGFILE%" echo ==================== NSLOOKUP %TEST_HOST% ====================
+echo [3 of 14] Testing configured DNS resolution...
+call :section "NSLOOKUP %TEST_HOST%"
 nslookup %TEST_HOST% >>"%LOGFILE%" 2>&1
->>"%LOGFILE%" echo.
 
-REM ---- 4. HTTPS request ---------------------------------------------
-REM Record only the HTTP status instead of response headers. This avoids
-REM unnecessarily placing cookies or other response metadata in the log.
-echo [4 of 6] Testing HTTPS connectivity...
->>"%LOGFILE%" echo ==================== HTTPS %TEST_HOST% ====================
-where curl >nul 2>&1
-if errorlevel 1 (
-    >>"%LOGFILE%" echo curl is not installed or is not available in PATH.
-) else (
-    curl -sS -o NUL --connect-timeout 15 --max-time 30 ^
-        -w "HTTP status: %%{http_code}\n" "https://%TEST_HOST%/" >>"%LOGFILE%" 2>&1
-)
->>"%LOGFILE%" echo.
+REM ---- 4. IP configuration ------------------------------------------
+echo [4 of 14] Capturing IP configuration...
+call :section "IPCONFIG /ALL"
+ipconfig /all >>"%LOGFILE%" 2>&1
 
-REM ---- 5. WinHTTP proxy ---------------------------------------------
-echo [5 of 6] Checking WinHTTP proxy configuration...
->>"%LOGFILE%" echo ==================== WINHTTP PROXY ====================
+REM ---- 5. Routing table ---------------------------------------------
+echo [5 of 14] Capturing routing table...
+call :section "ROUTE PRINT"
+route print >>"%LOGFILE%" 2>&1
+
+REM ---- 6. Network adapters ------------------------------------------
+echo [6 of 14] Capturing network adapters...
+call :section "GET-NETADAPTER"
+powershell -NoProfile -Command ^
+    "Get-NetAdapter | Sort-Object Status,Name | Format-Table -AutoSize Name,InterfaceDescription,Status,LinkSpeed,MacAddress,ifIndex" ^
+    >>"%LOGFILE%" 2>&1
+
+REM ---- 7. IP and DNS configuration ----------------------------------
+echo [7 of 14] Capturing IP and DNS configuration...
+call :section "GET-NETIPCONFIGURATION"
+powershell -NoProfile -Command ^
+    "Get-NetIPConfiguration | Format-List InterfaceAlias,InterfaceDescription,IPv4Address,IPv6Address,IPv4DefaultGateway,IPv6DefaultGateway,DNSServer" ^
+    >>"%LOGFILE%" 2>&1
+
+call :section "DNS CLIENT SERVER ADDRESSES"
+powershell -NoProfile -Command ^
+    "Get-DnsClientServerAddress | Where-Object {$_.ServerAddresses.Count -gt 0} | Format-Table -AutoSize InterfaceAlias,AddressFamily,ServerAddresses" ^
+    >>"%LOGFILE%" 2>&1
+
+REM ---- 8. Enabled adapter bindings ----------------------------------
+echo [8 of 14] Capturing enabled adapter bindings...
+call :section "ENABLED NETWORK ADAPTER BINDINGS"
+powershell -NoProfile -Command ^
+    "Get-NetAdapterBinding -Name '*' | Where-Object Enabled | Sort-Object Name,DisplayName | Format-Table -AutoSize Name,DisplayName,ComponentID" ^
+    >>"%LOGFILE%" 2>&1
+
+REM ---- 9. WinHTTP proxy ---------------------------------------------
+echo [9 of 14] Checking WinHTTP proxy configuration...
+call :section "WINHTTP PROXY"
 netsh winhttp show proxy >>"%LOGFILE%" 2>&1
->>"%LOGFILE%" echo.
 
-REM ---- 6. Current-user Internet Settings proxy ----------------------
-REM These values are commonly used by Windows applications and browsers.
-REM Only proxy configuration values are recorded. No browser history,
-REM credentials, cookies, or browsing content are collected.
-echo [6 of 6] Checking current-user proxy settings...
->>"%LOGFILE%" echo ==================== USER / BROWSER PROXY SETTINGS ====================
+REM ---- 10. Current-user proxy settings ------------------------------
+echo [10 of 14] Checking current-user proxy settings...
+call :section "USER / BROWSER PROXY SETTINGS"
 powershell -NoProfile -Command ^
     "$p = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings';" ^
     "[pscustomobject]@{" ^
@@ -111,12 +129,37 @@ powershell -NoProfile -Command ^
     "AutoConfigURL=$p.AutoConfigURL;" ^
     "AutoDetect=$p.AutoDetect" ^
     "} | Format-List" >>"%LOGFILE%" 2>&1
->>"%LOGFILE%" echo.
+
+REM ---- 11. Default HTTPS timing -------------------------------------
+echo [11 of 14] Testing default HTTPS timing...
+call :curltest "DEFAULT HTTPS" ""
+
+REM ---- 12. IPv4 HTTPS timing ----------------------------------------
+echo [12 of 14] Testing IPv4 HTTPS timing...
+call :curltest "IPv4 HTTPS" "-4"
+
+REM ---- 13. IPv6 HTTPS timing ----------------------------------------
+echo [13 of 14] Testing IPv6 HTTPS timing...
+call :curltest "IPv6 HTTPS" "-6"
+
+REM ---- 14. Active connections and process correlation ---------------
+echo [14 of 14] Capturing active connections and processes...
+call :section "NETSTAT -ANO"
+netstat -ano >>"%LOGFILE%" 2>&1
+
+call :section "TOP TCP CONNECTION COUNTS BY PID"
+powershell -NoProfile -Command ^
+    "$c = Get-NetTCPConnection -ErrorAction SilentlyContinue; if ($c) { $c | Group-Object OwningProcess | Sort-Object Count -Descending | Select-Object -First 25 @{n='PID';e={$_.Name}},Count | Format-Table -AutoSize }" ^
+    >>"%LOGFILE%" 2>&1
+
+call :section "PROCESS LIST FOR NETWORK CORRELATION"
+powershell -NoProfile -Command ^
+    "Get-Process | Sort-Object Id | Select-Object Id,ProcessName | Format-Table -AutoSize" ^
+    >>"%LOGFILE%" 2>&1
 
 REM ---- Finish -------------------------------------------------------
->>"%LOGFILE%" echo ============================================================
+call :section "DIAGNOSTIC COMPLETE"
 >>"%LOGFILE%" echo Completed: %DATE% %TIME%
->>"%LOGFILE%" echo ============================================================
 
 echo.
 echo Diagnostics complete.
@@ -126,5 +169,32 @@ echo.
 echo Review the log before sharing it with others.
 echo.
 pause
+goto :eof
 
-endlocal
+REM ===================================================================
+REM Helper: formatted section header
+REM ===================================================================
+:section
+>>"%LOGFILE%" echo.
+>>"%LOGFILE%" echo ============================================================
+>>"%LOGFILE%" echo %~1
+>>"%LOGFILE%" echo ============================================================
+exit /b
+
+REM ===================================================================
+REM Helper: HTTPS timing test
+REM Records timing only, not response headers or page content.
+REM ===================================================================
+:curltest
+call :section "%~1"
+
+where curl >nul 2>&1
+if errorlevel 1 (
+    >>"%LOGFILE%" echo curl is not installed or is not available in PATH.
+    exit /b
+)
+
+curl %~2 -o NUL -sS --connect-timeout 15 --max-time 30 ^
+    -w "RemoteIP:%%{remote_ip}\nHTTP:%%{http_code}\nDNS:%%{time_namelookup}s\nConnect:%%{time_connect}s\nTLS:%%{time_appconnect}s\nFirstByte:%%{time_starttransfer}s\nTotal:%%{time_total}s\n" ^
+    "https://%TEST_HOST%/" >>"%LOGFILE%" 2>&1
+exit /b
