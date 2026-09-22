@@ -1,48 +1,49 @@
 # Windows Internet Slowdown Diagnostic Capture
 
-A small Windows batch script for capturing useful network diagnostics when an Internet connection feels slow, inconsistent, or unreliable.
+A Windows batch script for capturing useful network diagnostics when an Internet connection feels slow, inconsistent, or unreliable.
 
-The tool is designed for intermittent problems where a user may report that websites or Internet-connected applications feel slow even though speed tests or basic system performance appear normal. It gives a non-technical user a simple way to collect a detailed snapshot for later troubleshooting.
+The tool is designed for intermittent problems where websites or Internet-connected applications may feel slow even though speed tests or basic system performance appear normal. It gives a non-technical user a simple way to collect a detailed, read-only snapshot for later troubleshooting.
 
-## What v3 checks
+## What v4 checks
 
-Version 3 performs fourteen read-only diagnostic steps:
+Version 4 performs nineteen read-only diagnostic steps:
 
-1. **Raw IPv4 connectivity** - Pings `1.1.1.1` 20 times to check basic Internet reachability, latency, and packet loss.
-2. **Hostname connectivity** - Pings `www.google.com` 20 times to combine name resolution with a connectivity test.
-3. **DNS resolution** - Runs `nslookup` against `www.google.com` using the system's configured DNS resolver.
-4. **IP configuration** - Captures `ipconfig /all`, including addresses, gateways, DHCP information, and DNS servers.
-5. **Routing table** - Captures `route print` to show active IPv4 and IPv6 routes.
-6. **Network adapter status** - Reports adapter names, descriptions, status, link speed, MAC address, and interface index.
-7. **IP and DNS configuration by adapter** - Captures adapter-specific IP addresses, gateways, and DNS server assignments.
-8. **Enabled network adapter bindings** - Captures enabled networking components and bindings.
-9. **WinHTTP proxy configuration** - Runs `netsh winhttp show proxy`.
-10. **Current-user proxy configuration** - Reads `ProxyEnable`, `ProxyServer`, `AutoConfigURL`, and `AutoDetect`.
-11. **Default HTTPS timing** - Records DNS, TCP connect, TLS, first-byte, and total request timing using the normal network path.
-12. **IPv4 HTTPS timing** - Repeats the HTTPS timing test while forcing IPv4.
-13. **IPv6 HTTPS timing** - Repeats the HTTPS timing test while forcing IPv6.
-14. **Active connection and process correlation** - Captures `netstat -ano`, TCP connection counts by PID, and a PID/process-name list.
+1. **Raw IPv4 connectivity** - Pings a configurable public IP target 20 times to check reachability, latency, and packet loss.
+2. **Hostname connectivity** - Pings the primary configurable test host.
+3. **Traditional DNS lookup** - Runs `nslookup` against the primary test host using the system's configured DNS resolver.
+4. **Dedicated DNS timing** - Measures resolution time for both configured test hosts and records returned IP addresses.
+5. **Independent TCP connection timing** - Resolves each configured host and measures TCP connection time to at most one IPv4 and one IPv6 address without performing TLS or HTTP.
+6. **Default gateway test** - Detects the active IPv4 default gateway and pings it to help distinguish local-link problems from upstream Internet problems.
+7. **IP configuration** - Captures `ipconfig /all`.
+8. **Routing table** - Captures `route print`.
+9. **Network adapter status** - Reports adapter name, description, status, link speed, MAC address, and interface index.
+10. **Network adapter statistics** - Captures byte, packet, discard, and packet-error counters.
+11. **IP and DNS configuration by adapter** - Captures adapter-specific IP addresses, gateways, and DNS server assignments.
+12. **Enabled network adapter bindings** - Captures enabled networking components and bindings.
+13. **Wi-Fi link diagnostics** - Captures selected WLAN link-health fields such as state, signal, radio type, channel, and negotiated rates when available. SSID and BSSID values are intentionally excluded.
+14. **WinHTTP proxy configuration** - Runs `netsh winhttp show proxy`.
+15. **Current-user proxy configuration** - Reads `ProxyEnable`, `ProxyServer`, `AutoConfigURL`, and `AutoDetect`.
+16. **Default HTTPS timing** - Records DNS, TCP connect, TLS, first-byte, and total request timing for both configured test hosts.
+17. **IPv4 HTTPS timing** - Repeats the HTTPS timing tests while forcing IPv4.
+18. **IPv6 HTTPS timing** - Repeats the HTTPS timing tests while forcing IPv6.
+19. **Active connection and process correlation** - Captures `netstat -ano`, TCP connection counts by PID, and a PID/process-name list.
 
 The script does not change network settings.
 
-## What's new in v3
+## What's new in v4
 
-Version 2 focused on expanded proxy detection.
+Version 3 added detailed adapter, routing, DNS, HTTPS timing, connection, and process-correlation data.
 
-Version 3 adds deeper troubleshooting data intended to help distinguish between problems involving:
+Version 4 focuses on **layer-by-layer timing and link health**:
 
-- DNS
-- IPv4 versus IPv6 behavior
-- routing
-- network adapters
-- adapter bindings
-- proxy configuration
-- HTTPS connection setup
-- TLS negotiation
-- active network connections
-- processes with unusually high numbers of connections
+- dedicated DNS resolution timing
+- TCP connection timing independent of TLS and HTTP
+- active default-gateway latency
+- adapter error and discard counters
+- conditional Wi-Fi link information
+- a second configurable test host
 
-This version is still designed as a capture tool rather than an automated diagnosis engine.
+These additions make it easier to determine whether a slowdown begins at the local network, DNS layer, TCP connection layer, TLS layer, or application-response layer.
 
 ## Requirements
 
@@ -66,7 +67,7 @@ Modern Windows 10 and Windows 11 installations normally include `curl`.
 Each run creates a new timestamped log, for example:
 
 ```text
-Internet_Diagnostic_2026-09-04_19-30-00.txt
+Internet_Diagnostic_2026-09-22_08-30-00.txt
 ```
 
 Existing logs are not overwritten.
@@ -77,14 +78,91 @@ The default targets are defined near the top of the batch file:
 
 ```bat
 set "PING_TARGET=1.1.1.1"
-set "TEST_HOST=www.google.com"
+set "TEST_HOST_1=www.google.com"
+set "TEST_HOST_2=www.microsoft.com"
+set "TEST_PORT=443"
 ```
 
-They can be changed before deployment if different public test targets are preferred.
+These can be changed before deployment.
 
-## HTTPS timing fields
+Using test hosts from different providers can be useful. If one endpoint is slow while another is healthy, that may point away from a general local-network problem.
 
-The default, IPv4, and IPv6 HTTPS tests record:
+## Example v4 output
+
+### DNS timing
+
+```text
+============================================================
+DNS TIMING - www.google.com
+============================================================
+Host: www.google.com
+Resolution: SUCCESS
+TimeMs: 18
+Addresses:
+  142.250.72.196
+  2607:f8b0:4007:80d::2004
+```
+
+### TCP timing
+
+```text
+============================================================
+TCP TIMING - www.google.com:443
+============================================================
+Address: 142.250.72.196
+Family: InterNetwork
+TCP: SUCCESS
+ConnectTimeMs: 22
+
+Address: 2607:f8b0:4007:80d::2004
+Family: InterNetworkV6
+TCP: SUCCESS
+ConnectTimeMs: 27
+```
+
+### HTTPS timing
+
+```text
+RemoteIP:142.250.72.196
+HTTP:200
+DNS:0.018000s
+Connect:0.041000s
+TLS:0.093000s
+FirstByte:0.151000s
+Total:0.181000s
+```
+
+The example values above are illustrative only.
+
+## How the timing layers fit together
+
+The v4 timing tests deliberately measure different parts of a request.
+
+### DNS timing
+
+The dedicated DNS test measures hostname resolution independently.
+
+If DNS takes several seconds while gateway, raw IP, and TCP tests are otherwise healthy, investigate DNS configuration, DNS filtering, VPN behavior, or resolver availability.
+
+### TCP timing
+
+The independent TCP test resolves the hostname first, then times the TCP connection to the resulting IP address. It does not perform a TLS handshake or HTTP request.
+
+This helps separate TCP connection delays from TLS or application delays.
+
+For example:
+
+```text
+DNS: 15 ms
+TCP: 20 ms
+TLS: 4200 ms
+```
+
+would make TLS inspection, endpoint security, VPN filtering, or another higher-layer issue more interesting.
+
+### HTTPS timing
+
+The HTTPS test records:
 
 - `RemoteIP` - destination address used for the request
 - `HTTP` - returned HTTP status code
@@ -94,29 +172,50 @@ The default, IPv4, and IPv6 HTTPS tests record:
 - `FirstByte` - time until the first response byte is received
 - `Total` - total request time
 
-Example:
-
-```text
-RemoteIP:142.251.157.119
-HTTP:200
-DNS:0.009239s
-Connect:0.026927s
-TLS:0.061986s
-FirstByte:0.124994s
-Total:0.175185s
-```
-
-These values can be useful when ping tests look healthy but web browsing or applications still feel slow.
-
-For example, a low DNS time combined with a very high TLS time may point troubleshooting toward HTTPS inspection, security software, or another layer above basic IP connectivity.
+The default, forced-IPv4, and forced-IPv6 tests make address-family differences easier to spot.
 
 ## Interpreting the results
 
 The tool is primarily intended to capture evidence while a problem is actively happening.
 
-### Healthy raw connectivity, slow hostname-based tests
+### Default gateway is slow
 
-If the raw IP ping is healthy but hostname-based tests pause or fail, DNS becomes more interesting.
+If the default gateway shows high latency or packet loss, investigate the local network before blaming the ISP or DNS.
+
+Possible areas include:
+
+- Wi-Fi signal quality
+- Ethernet cabling
+- network adapter or driver issues
+- local router or switch performance
+
+### Gateway is healthy but public IP is slow
+
+If the gateway remains fast but the public ping target has high latency or packet loss, the problem may be beyond the local link.
+
+That could include the router's upstream connection, ISP path, or another external network issue.
+
+### DNS timing is slow
+
+If raw IP connectivity and gateway latency are healthy but dedicated DNS resolution is slow, DNS becomes a stronger lead.
+
+### TCP is slow but DNS is healthy
+
+If DNS completes quickly but independent TCP connections take a long time, investigate routing, filtering, firewall behavior, endpoint security, or upstream connectivity.
+
+### TCP is fast but TLS is slow
+
+If DNS and TCP are fast but the HTTPS test spends a long time reaching the TLS milestone, investigate software or devices that inspect or filter encrypted traffic.
+
+Examples can include:
+
+- endpoint security
+- HTTPS inspection
+- VPN software
+- firewall products
+- network security appliances
+
+The script does not automatically determine which component is responsible.
 
 ### IPv4 and IPv6 behave differently
 
@@ -124,20 +223,25 @@ If forced IPv4 HTTPS requests are fast while forced IPv6 requests are consistent
 
 The reverse can also occur.
 
-### Healthy ping, slow TLS or first-byte timing
+### Adapter errors or discarded packets increase
 
-If ping latency is low but TLS or first-byte time is unusually high, the delay may be occurring above the basic IP layer.
+The adapter-statistics section may expose packet errors or discarded packets.
 
-Possible areas to investigate include:
+A single snapshot cannot always establish whether a counter is actively increasing. Comparing a healthy capture with a slow-period capture can be more useful.
 
-- security software
-- HTTPS inspection
-- endpoint protection
-- VPN software
-- network filtering
-- application-specific behavior
+Unexpectedly increasing error or discard counts can justify investigating:
 
-The script does not automatically determine which of these is responsible.
+- cabling
+- Wi-Fi quality
+- network adapter drivers
+- switch/router ports
+- duplex or physical-link problems
+
+### Wi-Fi diagnostics
+
+When Wi-Fi information is available, the script records selected link-health fields such as state, signal, radio type, channel, and negotiated receive/transmit rates. It intentionally excludes SSID and BSSID.
+
+Weak signal or unusually low negotiated rates can help explain a local wireless problem even when the Internet service itself is healthy.
 
 ### Unexpected adapter bindings
 
@@ -174,7 +278,7 @@ These checks improve proxy visibility but do not prove that all traffic bypasses
 
 ## Privacy
 
-Version 3 captures significantly more information than earlier releases.
+Version 4 captures detailed network-state information.
 
 Review diagnostic logs before posting them publicly or sharing them outside the organization.
 
@@ -187,6 +291,7 @@ Depending on the system, the log may include:
 - MAC addresses
 - DHCP information
 - routing information
+- selected Wi-Fi link-health information (SSID and BSSID are intentionally excluded)
 - proxy server names or addresses
 - PAC file URLs
 - listening ports
@@ -202,12 +307,13 @@ The script does **not** intentionally collect:
 - passwords
 - cookies
 - full executable paths
+- packet contents
 
 The HTTPS timing tests record timing and status information only.
 
 ## Scope
 
-Version 3 is intended as a practical diagnostic capture tool for intermittent Windows network slowdowns.
+Version 4 is intended as a practical diagnostic capture tool for intermittent Windows network slowdowns.
 
 It does not:
 
@@ -226,7 +332,8 @@ For deeper investigation, tools such as Microsoft Sysinternals TCPView, Process 
 
 - **v1** - basic ping, DNS, HTTPS, and WinHTTP proxy capture
 - **v2** - adds current-user proxy and PAC/autodetect information
-- **v3** - adds detailed adapter, routing, DNS, timing, connection, and process correlation data
+- **v3** - adds detailed adapter, routing, DNS, HTTPS timing, connection, and process-correlation data
+- **v4** - adds dedicated DNS/TCP timing, gateway testing, adapter error statistics, Wi-Fi link information, and multiple test hosts
 
 ## License
 
